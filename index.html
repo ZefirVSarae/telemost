@@ -1,0 +1,688 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Telemost In World</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Rubik:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        * {
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+        body {
+            font-family: 'Rubik', sans-serif;
+            background-color: #f8fafc;
+            overflow: hidden;
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+        }
+        .pixel-font {
+            font-family: 'Press Start 2P', cursive;
+        }
+        canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            background-color: #ffffff;
+        }
+        @keyframes pulse-subtle {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+        }
+        .animate-pulse-subtle {
+            animation: pulse-subtle 2s infinite ease-in-out;
+        }
+    </style>
+</head>
+<body class="relative bg-white text-slate-800">
+
+    <!-- Main Game Canvas -->
+    <canvas id="gameCanvas"></canvas>
+
+    <!-- Main Menu Screen -->
+    <div id="mainMenu" class="absolute inset-0 z-40 flex flex-col items-center justify-center bg-white/90 backdrop-blur-md transition-all duration-300">
+        <div class="max-w-md w-full p-8 text-center bg-white rounded-3xl shadow-2xl border-4 border-amber-400 m-4 flex flex-col items-center">
+            <div class="w-24 h-24 mb-4 rounded-2xl bg-amber-100 flex items-center justify-center p-2 shadow-inner border-2 border-amber-300">
+                <img id="menuLogo" src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSOBUZMmZZO3cgDt4KJUJDeOv2jdKiIAniR4sLSGvnsWRPFNzSQ0KKaPbPu&s=10" alt="Telemost Logo" class="w-full h-full object-contain animate-pulse-subtle">
+            </div>
+            <h1 class="pixel-font text-2xl sm:text-3xl font-extrabold text-amber-500 mb-2 tracking-tight drop-shadow-sm">
+                Telemost In World
+            </h1>
+            <p class="text-slate-500 mb-8 text-sm font-medium">Бесконечный Телемост: Выживай и сражайся!</p>
+
+            <div class="space-y-4 w-full">
+                <button id="btnPlay" class="w-full py-4 px-6 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-white font-bold text-lg rounded-2xl shadow-lg hover:shadow-xl transition transform active:scale-95 flex items-center justify-center gap-2">
+                    <svg class="w-6 h-6 fill-current" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+                    ИГРАТЬ
+                </button>
+
+                <button disabled class="w-full py-4 px-6 bg-slate-200 text-slate-400 font-bold text-lg rounded-2xl shadow-none cursor-not-allowed border-2 border-slate-300 flex items-center justify-center gap-2 opacity-80">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
+                    МУЛЬТИПЛЕЕР <span class="text-xs bg-slate-300 text-slate-600 px-2 py-0.5 rounded-full ml-1">Скоро</span>
+                </button>
+            </div>
+
+            <div class="mt-8 text-xs text-slate-400 font-mono">
+                Управление: Свайп/Джойстик или WASD / Стрелочки + Пробел для удара
+            </div>
+        </div>
+    </div>
+
+    <!-- HUD Layer -->
+    <div id="gameHUD" class="hidden absolute inset-0 pointer-events-none z-20 flex-col justify-between p-4 sm:p-6">
+        <!-- Top Status Bar -->
+        <div class="flex justify-between items-start gap-4 w-full max-w-4xl mx-auto">
+            <!-- Player Stats -->
+            <div class="bg-white/90 backdrop-blur-md p-3 sm:p-4 rounded-2xl shadow-lg border border-slate-200 pointer-events-auto flex flex-col gap-2 min-w-[180px] sm:min-w-[220px]">
+                <div>
+                    <div class="flex justify-between text-xs font-bold text-slate-600 mb-1">
+                        <span>❤️ ЗДОРОВЬЕ</span>
+                        <span id="hpText">100 / 100</span>
+                    </div>
+                    <div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                        <div id="hpBar" class="h-full bg-rose-500 transition-all duration-150 rounded-full" style="width: 100%;"></div>
+                    </div>
+                </div>
+
+                <div>
+                    <div class="flex justify-between text-xs font-bold text-slate-600 mb-1">
+                        <span>🍗 СЫТОСТЬ</span>
+                        <span id="hungerText">100 / 100</span>
+                    </div>
+                    <div class="w-full h-3 bg-slate-100 rounded-full overflow-hidden border border-slate-200">
+                        <div id="hungerBar" class="h-full bg-amber-500 transition-all duration-150 rounded-full" style="width: 100%;"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Score and Counters -->
+            <div class="bg-white/90 backdrop-blur-md p-3 sm:p-4 rounded-2xl shadow-lg border border-slate-200 pointer-events-auto flex flex-col items-end text-right">
+                <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Победил в баттлах</div>
+                <div id="scoreText" class="pixel-font text-xl sm:text-2xl text-amber-500 font-extrabold">0</div>
+                <div id="coordsText" class="text-[10px] text-slate-400 font-mono mt-1">X: 0 | Y: 0</div>
+            </div>
+        </div>
+
+        <!-- Touch Controls -->
+        <div class="w-full flex justify-between items-end pointer-events-none pb-2">
+            <div id="joystickZone" class="pointer-events-auto relative w-36 h-36 sm:w-44 sm:h-44 bg-slate-800/10 backdrop-blur-sm rounded-full border-2 border-slate-400/30 flex items-center justify-center touch-none">
+                <div id="joystickKnob" class="absolute w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-tr from-amber-400 to-amber-500 rounded-full shadow-md border-2 border-white transition-transform duration-75"></div>
+            </div>
+
+            <div class="hidden sm:block text-xs font-semibold text-slate-400 bg-white/80 p-2 rounded-lg backdrop-blur">
+                Управление: [WASD] / Стрелочки — Ходьба | [Пробел] — Удар 🥊
+            </div>
+
+            <div class="pointer-events-auto flex flex-col items-center gap-2">
+                <button id="btnAttack" class="w-20 h-20 sm:w-24 sm:h-24 bg-gradient-to-tr from-red-500 to-rose-600 hover:from-red-600 hover:to-rose-700 active:scale-90 text-white font-extrabold rounded-full shadow-2xl border-4 border-white flex flex-col items-center justify-center transition-transform touch-none">
+                    <span class="text-3xl sm:text-4xl">🥊</span>
+                    <span class="text-[10px] sm:text-xs font-bold uppercase tracking-wider">УДАР</span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Game Over Screen Modal -->
+    <div id="gameOverModal" class="hidden absolute inset-0 z-50 flex items-center justify-center bg-red-950/80 backdrop-blur-md p-4">
+        <div class="max-w-md w-full bg-white rounded-3xl shadow-2xl border-4 border-slate-800 p-8 text-center">
+            <div class="text-5xl mb-4">💀</div>
+            <h2 class="pixel-font text-2xl font-extrabold text-red-600 mb-2">ВЫ ПОГИБЛИ</h2>
+            <p id="deathReason" class="text-slate-600 text-sm mb-6">Ваш Телемост отключился от эфира...</p>
+
+            <div class="bg-slate-50 p-4 rounded-2xl mb-6 border border-slate-200">
+                <div class="text-xs text-slate-400 font-medium uppercase">Победил в баттлах</div>
+                <div id="finalScore" class="pixel-font text-2xl text-slate-800 mt-1">0</div>
+            </div>
+
+            <button id="btnRestart" class="w-full py-4 px-6 bg-amber-500 hover:bg-amber-600 text-white font-bold text-lg rounded-2xl shadow-lg transition transform active:scale-95">
+                ПОПРОБОВАТЬ СНОВА
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- ASSETS ---
+        const PLAYER_IMG_SRC = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSOBUZMmZZO3cgDt4KJUJDeOv2jdKiIAniR4sLSGvnsWRPFNzSQ0KKaPbPu&s=10";
+        const FOOD_IMG_SRC = "https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSlr_mf5YH3ITEVDeAlsWUf4t0UjM50vHY7489vGAOpvtOa4aqsBTyf-dg&s=10";
+
+        const playerImg = new Image();
+        playerImg.src = PLAYER_IMG_SRC;
+
+        const foodImg = new Image();
+        foodImg.src = FOOD_IMG_SRC;
+
+        // --- GAME ENGINE SETUP ---
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        const STATE = { MENU: 0, PLAYING: 1, GAMEOVER: 2 };
+        let currentState = STATE.MENU;
+
+        let width = window.innerWidth;
+        let height = window.innerHeight;
+
+        function resizeCanvas() {
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.width = width;
+            canvas.height = height;
+        }
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+
+        // --- PLAYER & WORLD DATA ---
+        const player = {
+            x: 0, y: 0,
+            radius: 30,
+            speed: 300,
+            hp: 100, maxHp: 100,
+            hunger: 100, maxHunger: 100,
+            score: 0,
+            attackCooldown: 0,
+            facingAngle: 0
+        };
+
+        let foods = [];
+        let npcs = [];
+        let damageTexts = [];
+        let punchEffects = [];
+
+        const keys = {
+            KeyW: false, KeyA: false, KeyS: false, KeyD: false,
+            ArrowUp: false, ArrowLeft: false, ArrowDown: false, ArrowRight: false,
+            Space: false
+        };
+
+        const joystick = { active: false, startX: 0, startY: 0, vectorX: 0, vectorY: 0 };
+
+        // --- KEYBOARD ---
+        window.addEventListener('keydown', (e) => {
+            if (Object.prototype.hasOwnProperty.call(keys, e.code)) {
+                keys[e.code] = true;
+            }
+            if (e.code === 'Space' && currentState === STATE.PLAYING) {
+                e.preventDefault();
+                performPlayerAttack();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            if (Object.prototype.hasOwnProperty.call(keys, e.code)) {
+                keys[e.code] = false;
+            }
+        });
+
+        // --- JOYSTICK ---
+        const joystickZone = document.getElementById('joystickZone');
+        const joystickKnob = document.getElementById('joystickKnob');
+        const maxRadius = 50;
+
+        function handleTouchStart(e) {
+            e.preventDefault();
+            const touch = e.touches[0];
+            const rect = joystickZone.getBoundingClientRect();
+            joystick.active = true;
+            joystick.startX = rect.left + rect.width / 2;
+            joystick.startY = rect.top + rect.height / 2;
+            updateJoystick(touch.clientX, touch.clientY);
+        }
+
+        function handleTouchMove(e) {
+            if (!joystick.active) return;
+            e.preventDefault();
+            const touch = e.touches[0];
+            updateJoystick(touch.clientX, touch.clientY);
+        }
+
+        function handleTouchEnd() {
+            joystick.active = false;
+            joystick.vectorX = 0;
+            joystick.vectorY = 0;
+            joystickKnob.style.transform = 'translate(0px, 0px)';
+        }
+
+        function updateJoystick(clientX, clientY) {
+            let dx = clientX - joystick.startX;
+            let dy = clientY - joystick.startY;
+            const dist = Math.hypot(dx, dy);
+
+            if (dist > maxRadius) {
+                dx = (dx / dist) * maxRadius;
+                dy = (dy / dist) * maxRadius;
+            }
+
+            joystickKnob.style.transform = `translate(${dx}px, ${dy}px)`;
+            joystick.vectorX = dx / maxRadius;
+            joystick.vectorY = dy / maxRadius;
+        }
+
+        joystickZone.addEventListener('touchstart', handleTouchStart, { passive: false });
+        joystickZone.addEventListener('touchmove', handleTouchMove, { passive: false });
+        joystickZone.addEventListener('touchend', handleTouchEnd);
+        joystickZone.addEventListener('touchcancel', handleTouchEnd);
+
+        // --- ATTACK BUTTON ---
+        const btnAttack = document.getElementById('btnAttack');
+        btnAttack.addEventListener('touchstart', (e) => { e.preventDefault(); performPlayerAttack(); }, { passive: false });
+        btnAttack.addEventListener('mousedown', (e) => { e.preventDefault(); performPlayerAttack(); });
+
+        // --- GAME LOGIC ---
+        function initGame() {
+            player.x = 0;
+            player.y = 0;
+            player.hp = player.maxHp;
+            player.hunger = player.maxHunger;
+            player.score = 0;
+            player.attackCooldown = 0;
+            player.facingAngle = 0;
+
+            foods = [];
+            npcs = [];
+            damageTexts = [];
+            punchEffects = [];
+
+            for (let i = 0; i < 25; i++) {
+                spawnFood(Math.random() * 2000 - 1000, Math.random() * 2000 - 1000);
+            }
+            // Чуть больше врагов на старте
+            for (let i = 0; i < 5; i++) {
+                spawnNPC(Math.random() * 1600 - 800, Math.random() * 1600 - 800);
+            }
+
+            handleTouchEnd();
+            updateHUD();
+        }
+
+        function spawnFood(x, y) {
+            foods.push({ x, y, radius: 18, value: 30 });
+        }
+
+        function spawnNPC(x, y) {
+            const maxHp = 70 + Math.floor(Math.random() * 50);
+            npcs.push({
+                x, y,
+                radius: 32,
+                vx: (Math.random() - 0.5) * 90,
+                vy: (Math.random() - 0.5) * 90,
+                hp: maxHp,
+                maxHp: maxHp,
+                isAggro: false,
+                attackCooldown: 0,
+                flashTimer: 0,
+                speed: 140
+            });
+        }
+
+        function maintainWorldEntities() {
+            while (foods.length < 35) {
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 400 + Math.random() * 1200;
+                spawnFood(player.x + Math.cos(angle) * dist, player.y + Math.sin(angle) * dist);
+            }
+
+            // Увеличено с 5 до 7 — Телемосты появляются чаще
+            while (npcs.length < 7) {
+                const angle = Math.random() * Math.PI * 2;
+                const dist = 700 + Math.random() * 1000;
+                spawnNPC(player.x + Math.cos(angle) * dist, player.y + Math.sin(angle) * dist);
+            }
+
+            foods = foods.filter(f => Math.hypot(f.x - player.x, f.y - player.y) < 2500);
+            npcs = npcs.filter(n => Math.hypot(n.x - player.x, n.y - player.y) < 2500);
+        }
+
+        function performPlayerAttack() {
+            if (currentState !== STATE.PLAYING) return;
+            if (player.attackCooldown > 0) return;
+
+            player.attackCooldown = 0.25;
+
+            const attackRange = 85;
+            const attackAngle = player.facingAngle;
+
+            punchEffects.push({
+                x: player.x + Math.cos(attackAngle) * 35,
+                y: player.y + Math.sin(attackAngle) * 35,
+                radius: 20,
+                maxRadius: 55,
+                alpha: 1.0
+            });
+
+            for (let i = npcs.length - 1; i >= 0; i--) {
+                const npc = npcs[i];
+                const dist = Math.hypot(npc.x - player.x, npc.y - player.y);
+
+                if (dist <= attackRange + npc.radius) {
+                    const dmg = 20 + Math.floor(Math.random() * 15);
+                    npc.hp -= dmg;
+                    // Агрятся только после удара
+                    npc.isAggro = true;
+                    npc.flashTimer = 0.2;
+
+                    const kbAngle = Math.atan2(npc.y - player.y, npc.x - player.x);
+                    npc.x += Math.cos(kbAngle) * 35;
+                    npc.y += Math.sin(kbAngle) * 35;
+
+                    damageTexts.push({ text: `-${dmg}`, x: npc.x, y: npc.y - 30, color: '#ef4444', life: 0.8 });
+
+                    if (npc.hp <= 0) {
+                        player.score++;
+                        player.hunger = Math.min(player.maxHunger, player.hunger + 30);
+
+                        damageTexts.push({ text: '+1 ПОБЕДА!', x: npc.x, y: npc.y - 50, color: '#eab308', life: 1.2 });
+
+                        spawnFood(npc.x, npc.y);
+                        npcs.splice(i, 1);
+                    }
+                }
+            }
+        }
+
+        let lastTime = performance.now();
+
+        function gameLoop(currentTime) {
+            let dt = (currentTime - lastTime) / 1000;
+            lastTime = currentTime;
+            if (dt > 0.05) dt = 0.05;
+
+            if (currentState === STATE.PLAYING) {
+                updatePlayerMovement(dt);
+                updateNPCs(dt);
+                checkCollisions();
+                updateHungerAndHealth(dt);
+                updateEffects(dt);
+                maintainWorldEntities();
+                updateHUD();
+            }
+
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function updatePlayerMovement(dt) {
+            if (player.attackCooldown > 0) player.attackCooldown -= dt;
+
+            let moveX = 0;
+            let moveY = 0;
+
+            if (keys.KeyW || keys.ArrowUp) moveY -= 1;
+            if (keys.KeyS || keys.ArrowDown) moveY += 1;
+            if (keys.KeyA || keys.ArrowLeft) moveX -= 1;
+            if (keys.KeyD || keys.ArrowRight) moveX += 1;
+
+            if (moveX !== 0 && moveY !== 0) {
+                moveX *= 0.7071;
+                moveY *= 0.7071;
+            }
+
+            if (joystick.active) {
+                moveX = joystick.vectorX;
+                moveY = joystick.vectorY;
+            }
+
+            if (moveX !== 0 || moveY !== 0) {
+                player.facingAngle = Math.atan2(moveY, moveX);
+            }
+
+            player.x += moveX * player.speed * dt;
+            player.y += moveY * player.speed * dt;
+        }
+
+        function updateNPCs(dt) {
+            npcs.forEach(npc => {
+                if (npc.flashTimer > 0) npc.flashTimer -= dt;
+                if (npc.attackCooldown > 0) npc.attackCooldown -= dt;
+
+                const distToPlayer = Math.hypot(player.x - npc.x, player.y - npc.y);
+
+                // Убрана автоагра при приближении — только после удара
+                // if (distToPlayer < 120) npc.isAggro = true;
+
+                if (npc.isAggro) {
+                    const angle = Math.atan2(player.y - npc.y, player.x - npc.x);
+                    npc.x += Math.cos(angle) * npc.speed * dt;
+                    npc.y += Math.sin(angle) * npc.speed * dt;
+
+                    if (distToPlayer <= player.radius + npc.radius + 5 && npc.attackCooldown <= 0) {
+                        npc.attackCooldown = 0.8;
+                        const npcDmg = 8 + Math.floor(Math.random() * 8);
+                        player.hp -= npcDmg;
+
+                        player.x += Math.cos(angle) * 15;
+                        player.y += Math.sin(angle) * 15;
+
+                        damageTexts.push({ text: `-${npcDmg}`, x: player.x, y: player.y - 30, color: '#dc2626', life: 0.8 });
+
+                        if (player.hp <= 0) {
+                            player.hp = 0;
+                            triggerGameOver('Вас уничтожил дикий Яндекс Телемост!');
+                        }
+                    }
+                } else {
+                    npc.x += npc.vx * dt;
+                    npc.y += npc.vy * dt;
+
+                    if (Math.random() < 0.01) {
+                        npc.vx = (Math.random() - 0.5) * 90;
+                        npc.vy = (Math.random() - 0.5) * 90;
+                    }
+                }
+            });
+        }
+
+        function checkCollisions() {
+            for (let i = foods.length - 1; i >= 0; i--) {
+                const f = foods[i];
+                if (Math.hypot(player.x - f.x, player.y - f.y) < player.radius + f.radius) {
+                    // Сытость
+                    player.hunger = Math.min(player.maxHunger, player.hunger + f.value);
+                    // Здоровье +15
+                    player.hp = Math.min(player.maxHp, player.hp + 15);
+
+                    // Всплывающий текст о лечении
+                    damageTexts.push({
+                        text: '+15 HP',
+                        x: player.x,
+                        y: player.y - 40,
+                        color: '#22c55e',
+                        life: 0.9
+                    });
+
+                    foods.splice(i, 1);
+                }
+            }
+        }
+
+        function updateHungerAndHealth(dt) {
+            player.hunger -= 2.2 * dt;
+
+            if (player.hunger <= 0) {
+                player.hunger = 0;
+                player.hp -= 8 * dt;
+            }
+
+            if (player.hp <= 0) {
+                player.hp = 0;
+                triggerGameOver('Вы умерли от голода и истощения!');
+            }
+        }
+
+        function updateEffects(dt) {
+            punchEffects.forEach(p => {
+                p.radius += 120 * dt;
+                p.alpha -= 2.5 * dt;
+            });
+            punchEffects = punchEffects.filter(p => p.alpha > 0);
+
+            damageTexts.forEach(d => {
+                d.y -= 30 * dt;
+                d.life -= dt;
+            });
+            damageTexts = damageTexts.filter(d => d.life > 0);
+        }
+
+        function updateHUD() {
+            document.getElementById('hpBar').style.width = `${Math.max(0, (player.hp / player.maxHp) * 100)}%`;
+            document.getElementById('hpText').innerText = `${Math.ceil(player.hp)} / ${player.maxHp}`;
+
+            document.getElementById('hungerBar').style.width = `${Math.max(0, (player.hunger / player.maxHunger) * 100)}%`;
+            document.getElementById('hungerText').innerText = `${Math.ceil(player.hunger)} / ${player.maxHunger}`;
+
+            document.getElementById('scoreText').innerText = player.score;
+            document.getElementById('coordsText').innerText = `X: ${Math.round(player.x)} | Y: ${Math.round(player.y)}`;
+        }
+
+        function drawEntityImage(img, x, y, radius, fallbackColor) {
+            if (img.complete && img.naturalWidth !== 0) {
+                ctx.drawImage(img, x - radius, y - radius, radius * 2, radius * 2);
+            } else {
+                ctx.fillStyle = fallbackColor;
+                ctx.beginPath();
+                ctx.arc(x, y, radius, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        function render() {
+            ctx.clearRect(0, 0, width, height);
+            if (currentState === STATE.MENU) return;
+
+            const cameraX = width / 2 - player.x;
+            const cameraY = height / 2 - player.y;
+
+            ctx.save();
+            ctx.translate(cameraX, cameraY);
+
+            // Сетка
+            const gridSize = 100;
+            const startX = Math.floor((player.x - width) / gridSize) * gridSize;
+            const endX = Math.floor((player.x + width) / gridSize) * gridSize;
+            const startY = Math.floor((player.y - height) / gridSize) * gridSize;
+            const endY = Math.floor((player.y + height) / gridSize) * gridSize;
+
+            ctx.strokeStyle = '#e2e8f0';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            for (let x = startX; x <= endX; x += gridSize) {
+                ctx.moveTo(x, startY);
+                ctx.lineTo(x, endY);
+            }
+            for (let y = startY; y <= endY; y += gridSize) {
+                ctx.moveTo(startX, y);
+                ctx.lineTo(endX, y);
+            }
+            ctx.stroke();
+
+            // Еда
+            foods.forEach(f => drawEntityImage(foodImg, f.x, f.y, f.radius, '#f59e0b'));
+
+            // Эффекты удара
+            punchEffects.forEach(p => {
+                ctx.save();
+                ctx.strokeStyle = `rgba(239, 68, 68, ${Math.max(0, p.alpha)})`;
+                ctx.lineWidth = 4;
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.restore();
+            });
+
+            // NPC
+            npcs.forEach(npc => {
+                ctx.fillStyle = npc.isAggro ? 'rgba(239, 68, 68, 0.35)' : 'rgba(0, 0, 0, 0.1)';
+                ctx.beginPath();
+                ctx.arc(npc.x, npc.y + npc.radius * 0.5, npc.radius, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.save();
+                if (npc.flashTimer > 0) {
+                    ctx.filter = 'brightness(1.5) sepia(1) hue-rotate(-50deg) saturate(5)';
+                }
+                drawEntityImage(playerImg, npc.x, npc.y, npc.radius, '#ef4444');
+                ctx.restore();
+
+                const hpPercent = Math.max(0, npc.hp / npc.maxHp);
+                const barW = 50;
+                const barH = 6;
+                const barX = npc.x - barW / 2;
+                const barY = npc.y - npc.radius - 16;
+
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+                ctx.fillStyle = '#ef4444';
+                ctx.fillRect(barX, barY, barW * hpPercent, barH);
+
+                ctx.fillStyle = npc.isAggro ? '#dc2626' : '#475569';
+                ctx.font = 'bold 10px Rubik, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(npc.isAggro ? '😡 ВРАЖДЕБНЫЙ' : 'ДИКИЙ ТЕЛЕМОСТ', npc.x, barY - 4);
+            });
+
+            // Игрок
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.15)';
+            ctx.beginPath();
+            ctx.arc(player.x, player.y + player.radius * 0.6, player.radius * 0.9, 0, Math.PI * 2);
+            ctx.fill();
+
+            drawEntityImage(playerImg, player.x, player.y, player.radius, '#eab308');
+
+            const fistX = player.x + Math.cos(player.facingAngle) * (player.radius + 10);
+            const fistY = player.y + Math.sin(player.facingAngle) * (player.radius + 10);
+            ctx.fillStyle = '#ef4444';
+            ctx.beginPath();
+            ctx.arc(fistX, fistY, 8, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.fillStyle = '#1e293b';
+            ctx.font = 'bold 12px Rubik, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('ВЫ', player.x, player.y - player.radius - 8);
+
+            // Всплывающие тексты
+            damageTexts.forEach(d => {
+                ctx.fillStyle = d.color;
+                ctx.font = '800 16px Rubik, sans-serif';
+                ctx.textAlign = 'center';
+                ctx.fillText(d.text, d.x, d.y);
+            });
+
+            ctx.restore();
+        }
+
+        function triggerGameOver(reason) {
+            if (currentState === STATE.GAMEOVER) return;
+            currentState = STATE.GAMEOVER;
+
+            document.getElementById('deathReason').innerText = reason;
+            document.getElementById('finalScore').innerText = player.score;
+            document.getElementById('gameOverModal').classList.remove('hidden');
+        }
+
+        // --- UI EVENTS ---
+        document.getElementById('btnPlay').addEventListener('click', () => {
+            document.getElementById('mainMenu').classList.add('hidden');
+            document.getElementById('gameHUD').classList.remove('hidden');
+            document.getElementById('gameHUD').classList.add('flex');
+            currentState = STATE.PLAYING;
+            lastTime = performance.now();
+            initGame();
+        });
+
+        document.getElementById('btnRestart').addEventListener('click', () => {
+            document.getElementById('gameOverModal').classList.add('hidden');
+            currentState = STATE.PLAYING;
+            lastTime = performance.now();
+            initGame();
+        });
+
+        // Запуск
+        initGame();
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
