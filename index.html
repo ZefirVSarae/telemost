@@ -16,8 +16,27 @@
         }
         .pixel-font { font-family: 'Press Start 2P', cursive; }
         canvas { display: block; width: 100vw; height: 100vh; background-color: #ffffff; }
+        /* Разрешаем тач и выделение внутри полей ввода */
+        input, textarea {
+            touch-action: auto !important;
+            user-select: text !important;
+            -webkit-user-select: text !important;
+        }
         @keyframes pulse-subtle { 0%,100% { transform: scale(1);} 50% { transform: scale(1.05);} }
         .animate-pulse-subtle { animation: pulse-subtle 2s infinite ease-in-out; }
+
+        /* Скролл в чате */
+        #chatHistory::-webkit-scrollbar { width: 6px; }
+        #chatHistory::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+
+        /* Плавное исчезновение всплывающих сообщений чата */
+        .chat-floater {
+            animation: chatSlideIn 0.25s ease-out;
+        }
+        @keyframes chatSlideIn {
+            from { opacity: 0; transform: translateX(-20px); }
+            to   { opacity: 1; transform: translateX(0); }
+        }
     </style>
 </head>
 <body class="relative bg-white text-slate-800">
@@ -87,13 +106,21 @@
             </div>
         </div>
 
+        <!-- Чат-кнопка (только в мультиплеере) -->
+        <button id="btnChatToggle" class="hidden absolute top-4 left-1/2 -translate-x-1/2 z-30 px-4 py-2 bg-white/95 backdrop-blur rounded-xl shadow-lg border-2 border-amber-400 font-bold text-sm pointer-events-auto hover:bg-amber-50 active:scale-95 transition">
+            💬 ЧАТ
+        </button>
+
+        <!-- Всплывающие сообщения чата -->
+        <div id="chatFloaters" class="hidden absolute top-28 left-3 z-30 pointer-events-none flex flex-col gap-1.5 max-w-[260px]"></div>
+
         <div class="w-full flex justify-between items-end pointer-events-none pb-2">
             <div id="joystickZone" class="pointer-events-auto relative w-36 h-36 sm:w-44 sm:h-44 bg-slate-800/10 backdrop-blur-sm rounded-full border-2 border-slate-400/30 flex items-center justify-center touch-none">
                 <div id="joystickKnob" class="absolute w-14 h-14 sm:w-16 sm:h-16 bg-gradient-to-tr from-amber-400 to-amber-500 rounded-full shadow-md border-2 border-white transition-transform duration-75"></div>
             </div>
 
             <div class="hidden sm:block text-xs font-semibold text-slate-400 bg-white/80 p-2 rounded-lg backdrop-blur">
-                [WASD] — Ходьба | [Пробел] — Удар 🥊
+                [WASD] — Ходьба | [Пробел] — Удар | [Enter] — Чат
             </div>
 
             <div class="pointer-events-auto flex flex-col items-center gap-2">
@@ -101,6 +128,21 @@
                     <span class="text-3xl sm:text-4xl">🥊</span>
                     <span class="text-[10px] sm:text-xs font-bold uppercase tracking-wider">УДАР</span>
                 </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chat Overlay -->
+    <div id="chatOverlay" class="hidden absolute inset-0 z-50 bg-black/50 backdrop-blur flex items-end sm:items-center justify-center p-4">
+        <div class="w-full max-w-md bg-white rounded-2xl shadow-2xl border-4 border-amber-400 p-3">
+            <div class="flex justify-between items-center mb-2 px-1">
+                <div class="font-extrabold text-slate-700 text-sm">💬 ЧАТ ИГРОКОВ</div>
+                <button id="btnCloseChat" class="w-7 h-7 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 font-bold text-sm">✕</button>
+            </div>
+            <div id="chatHistory" class="max-h-72 overflow-y-auto mb-3 flex flex-col gap-2 text-sm pr-1 min-h-[120px]"></div>
+            <div class="flex gap-2">
+                <input id="chatInput" maxlength="100" placeholder="Написать сообщение..." class="flex-1 px-3 py-2 rounded-xl border-2 border-slate-200 focus:border-amber-400 outline-none text-slate-700" />
+                <button id="btnSendChat" class="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl active:scale-95 transition">➤</button>
             </div>
         </div>
     </div>
@@ -128,8 +170,8 @@
     // ================= FIREBASE =================
     import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
     import {
-        getDatabase, ref, set, onValue, onChildAdded, onChildRemoved,
-        onDisconnect, remove, push
+        getDatabase, ref, set, onValue, onChildAdded, push, remove,
+        onDisconnect, query, limitToLast
     } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-database.js";
 
     const firebaseConfig = {
@@ -193,28 +235,48 @@
     }
     let myName = 'Игрок';
     let myHue = 0;
-    const remotePlayers = new Map(); // id -> data
+    const remotePlayers = new Map();
     let lastSend = 0;
-    let myHitsRef = null;
     let myPlayerRef = null;
+    let myHitsRef = null;
     let playersListenerOff = null;
     let hitsListenerOff = null;
+    let foodListenerOff = null;
+    let chatListenerOff = null;
+    let lastFoodSpawn = 0;
+    let lastFoodCleanup = 0;
+
+    // ====== CHAT STATE ======
+    const chatMessages = []; // {id, name, text, ts, hue, isMine}
+    let chatOverlayOpen = false;
 
     function hashCode(str) {
         let h = 0;
         for (let i = 0; i < str.length; i++) h = ((h << 5) - h) + str.charCodeAt(i);
         return Math.abs(h);
     }
+    function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    }
 
     // ================= INPUT =================
     window.addEventListener('keydown', (e) => {
+        // Игнорируем ввод, если фокус в текстовом поле
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+
         if (Object.prototype.hasOwnProperty.call(keys, e.code)) keys[e.code] = true;
         if (e.code === 'Space' && currentState === STATE.PLAYING) {
             e.preventDefault();
             performPlayerAttack();
         }
+        // Быстрое открытие чата по Enter в мультиплеере
+        if (e.code === 'Enter' && multiplayerMode && currentState === STATE.PLAYING && !chatOverlayOpen) {
+            e.preventDefault();
+            openChat();
+        }
     });
     window.addEventListener('keyup', (e) => {
+        if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
         if (Object.prototype.hasOwnProperty.call(keys, e.code)) keys[e.code] = false;
     });
 
@@ -270,11 +332,13 @@
 
         foods = []; npcs = []; damageTexts = []; punchEffects = [];
         remotePlayers.clear();
+        lastFoodSpawn = 0;
 
         if (!multiplayerMode) {
             for (let i = 0; i < 25; i++) spawnFood(rand(-1000,1000), rand(-1000,1000));
             for (let i = 0; i < 5; i++) spawnNPC(rand(-800,800), rand(-800,800));
         }
+        // В мультиплеере еда подгрузится через Firebase listener
 
         handleTouchEnd();
         updateHUD();
@@ -282,7 +346,7 @@
 
     function rand(a,b) { return Math.random() * (b - a) + a; }
 
-    function spawnFood(x, y) { foods.push({ x, y, radius: 18, value: 30 }); }
+    function spawnFood(x, y) { foods.push({ id: null, x, y, radius: 18, value: 30, ts: 0 }); }
 
     function spawnNPC(x, y) {
         const maxHp = 70 + Math.floor(Math.random() * 50);
@@ -312,6 +376,59 @@
         npcs = npcs.filter(n => Math.hypot(n.x - player.x, n.y - player.y) < 2500);
     }
 
+    // ============ МУЛЬТИПЛЕЕРНАЯ ЕДА ============
+    function startFoodSync() {
+        foodListenerOff = onValue(ref(db, 'foods'), (snap) => {
+            const newFoods = [];
+            snap.forEach(child => {
+                const f = child.val();
+                if (!f) return;
+                newFoods.push({
+                    id: child.key,
+                    x: f.x, y: f.y,
+                    radius: 18,
+                    value: f.value || 30,
+                    ts: f.ts || 0
+                });
+            });
+            foods = newFoods;
+        });
+    }
+
+    function trySpawnFoodMP() {
+        if (!multiplayerMode) return;
+        const now = Date.now();
+        if (now - lastFoodSpawn < 1200) return;
+
+        const nearbyFoods = foods.filter(f => Math.hypot(f.x - player.x, f.y - player.y) < 900);
+        if (nearbyFoods.length >= 12) return;
+
+        lastFoodSpawn = now;
+        const a = Math.random() * Math.PI * 2;
+        const d = 300 + Math.random() * 550;
+        const id = 'f_' + Math.random().toString(36).slice(2, 10);
+        set(ref(db, 'foods/' + id), {
+            x: Math.round(player.x + Math.cos(a) * d),
+            y: Math.round(player.y + Math.sin(a) * d),
+            value: 30,
+            ts: now
+        }).catch(()=>{});
+    }
+
+    function cleanupOldFoodsMP() {
+        if (!multiplayerMode) return;
+        const now = Date.now();
+        if (now - lastFoodCleanup < 5000) return;
+        lastFoodCleanup = now;
+
+        foods.forEach(f => {
+            const distFromMe = Math.hypot(f.x - player.x, f.y - player.y);
+            if (distFromMe > 3000 && (now - (f.ts || 0)) > 90000) {
+                remove(ref(db, 'foods/' + f.id)).catch(()=>{});
+            }
+        });
+    }
+
     // ================ ATTACK =================
     function performPlayerAttack() {
         if (currentState !== STATE.PLAYING) return;
@@ -328,15 +445,13 @@
         });
 
         if (multiplayerMode) {
-            // Атака по другим игрокам
             remotePlayers.forEach((rp, id) => {
                 const dist = Math.hypot(rp.x - player.x, rp.y - player.y);
                 if (dist <= attackRange + 30) {
-                    // проверка угла (чтобы бить только вперёд)
                     const angleToTarget = Math.atan2(rp.y - player.y, rp.x - player.x);
                     let diff = Math.abs(angleToTarget - attackAngle);
                     while (diff > Math.PI) diff = Math.abs(diff - Math.PI * 2);
-                    if (diff > Math.PI / 1.6) return; // ~112 градусов конус
+                    if (diff > Math.PI / 1.6) return;
 
                     const dmg = 15 + Math.floor(Math.random() * 11);
                     const hitRef = push(ref(db, 'hits/' + id));
@@ -344,6 +459,7 @@
                         damage: dmg,
                         fromName: myName,
                         fromId: myId,
+                        x: player.x, y: player.y,
                         ts: Date.now()
                     });
 
@@ -357,7 +473,6 @@
                 }
             });
         } else {
-            // Атака по NPC
             for (let i = npcs.length - 1; i >= 0; i--) {
                 const npc = npcs[i];
                 const dist = Math.hypot(npc.x - player.x, npc.y - player.y);
@@ -394,17 +509,14 @@
         myPlayerRef = ref(db, 'players/' + myId);
         myHitsRef = ref(db, 'hits/' + myId);
 
-        // При отключении — удаляем себя
         onDisconnect(myPlayerRef).remove();
 
-        // Первичная запись
         set(myPlayerRef, {
             name: myName, x: 0, y: 0, angle: 0,
             hp: player.maxHp, score: 0,
             hue: myHue, lastSeen: Date.now()
-        });
+        }).catch(()=>{});
 
-        // Слушаем список игроков
         playersListenerOff = onValue(ref(db, 'players'), (snap) => {
             remotePlayers.clear();
             const now = Date.now();
@@ -419,7 +531,6 @@
             document.getElementById('onlineText').innerText = `🌐 онлайн: ${remotePlayers.size + 1}`;
         });
 
-        // Слушаем входящие удары по мне
         hitsListenerOff = onChildAdded(myHitsRef, (snapshot) => {
             const hit = snapshot.val();
             if (hit && currentState === STATE.PLAYING) {
@@ -430,12 +541,11 @@
                     x: player.x, y: player.y - 50,
                     color: '#dc2626', life: 1.0
                 });
-
-                // Толчок
-                const a = Math.atan2(player.y - (hit.y || player.y), player.x - (hit.x || player.x));
-                player.x += Math.cos(a) * 20;
-                player.y += Math.sin(a) * 20;
-
+                if (typeof hit.x === 'number' && typeof hit.y === 'number') {
+                    const a = Math.atan2(player.y - hit.y, player.x - hit.x);
+                    player.x += Math.cos(a) * 20;
+                    player.y += Math.sin(a) * 20;
+                }
                 if (player.hp <= 0) {
                     player.hp = 0;
                     triggerGameOver('Вас вырубил ' + (hit.fromName || 'кто-то') + '!');
@@ -443,12 +553,18 @@
             }
             remove(snapshot.ref).catch(()=>{});
         });
+
+        // Запуск синхронизации еды и чата
+        startFoodSync();
+        startChat();
     }
 
     function stopMultiplayer() {
         if (myPlayerRef) { remove(myPlayerRef).catch(()=>{}); myPlayerRef = null; }
         if (playersListenerOff) { playersListenerOff(); playersListenerOff = null; }
         if (hitsListenerOff) { hitsListenerOff(); hitsListenerOff = null; }
+        if (foodListenerOff) { foodListenerOff(); foodListenerOff = null; }
+        if (chatListenerOff) { chatListenerOff(); chatListenerOff = null; }
         remotePlayers.clear();
         multiplayerMode = false;
     }
@@ -466,8 +582,112 @@
             score: player.score,
             hue: myHue,
             lastSeen: Date.now()
+        }).catch(()=>{});
+    }
+
+    // ============== CHAT ==============
+    function startChat() {
+        const chatQ = query(ref(db, 'chat'), limitToLast(60));
+        chatListenerOff = onChildAdded(chatQ, (snap) => {
+            const m = snap.val();
+            if (!m) return;
+            if (m.fromId === myId) return; // свои уже добавлены локально
+            addChatMessage({
+                id: snap.key,
+                name: m.name || '?',
+                text: m.text || '',
+                ts: m.ts || 0,
+                hue: m.hue || 200,
+                isMine: false
+            });
         });
     }
+
+    function addChatMessage(msg) {
+        chatMessages.push(msg);
+        if (chatMessages.length > 60) chatMessages.shift();
+        showChatFloater(msg);
+        if (chatOverlayOpen) updateChatHistory();
+    }
+
+    function showChatFloater(msg) {
+        const cont = document.getElementById('chatFloaters');
+        const el = document.createElement('div');
+        el.className = 'chat-floater px-3 py-1.5 bg-white/95 backdrop-blur rounded-lg shadow-md text-[13px] leading-snug';
+        el.style.borderLeft = `4px solid hsl(${msg.hue}, 70%, 55%)`;
+        el.innerHTML = `<b style="color:hsl(${msg.hue},70%,45%)">${escapeHtml(msg.name)}:</b> <span class="text-slate-700">${escapeHtml(msg.text)}</span>`;
+        cont.appendChild(el);
+        setTimeout(() => {
+            el.style.transition = 'opacity 0.5s, transform 0.5s';
+            el.style.opacity = '0';
+            el.style.transform = 'translateX(-20px)';
+            setTimeout(() => el.remove(), 500);
+        }, 6000);
+        while (cont.children.length > 6) cont.removeChild(cont.firstChild);
+    }
+
+    function updateChatHistory() {
+        const cont = document.getElementById('chatHistory');
+        if (!cont) return;
+        if (chatMessages.length === 0) {
+            cont.innerHTML = `<div class="text-slate-400 text-xs text-center py-6">Пока сообщений нет. Напишите первым!</div>`;
+            return;
+        }
+        cont.innerHTML = chatMessages.map(m => `
+            <div style="border-left:4px solid hsl(${m.hue},70%,55%); padding-left:8px; ${m.isMine ? 'opacity:0.85;' : ''}">
+                <b style="color:hsl(${m.hue},70%,45%)">${escapeHtml(m.name)}${m.isMine ? ' (вы)' : ''}:</b>
+                <span class="text-slate-700">${escapeHtml(m.text)}</span>
+            </div>
+        `).join('');
+        cont.scrollTop = cont.scrollHeight;
+    }
+
+    function openChat() {
+        document.getElementById('chatOverlay').classList.remove('hidden');
+        chatOverlayOpen = true;
+        updateChatHistory();
+        setTimeout(() => document.getElementById('chatInput').focus(), 60);
+    }
+    function closeChat() {
+        document.getElementById('chatOverlay').classList.add('hidden');
+        chatOverlayOpen = false;
+        document.getElementById('chatInput').blur();
+    }
+    function sendChat() {
+        if (!multiplayerMode) return;
+        const input = document.getElementById('chatInput');
+        const text = (input.value || '').trim();
+        if (!text) return;
+        input.value = '';
+
+        const msgRef = push(ref(db, 'chat'));
+        const msg = {
+            fromId: myId,
+            name: myName,
+            text: text.slice(0, 100),
+            hue: myHue,
+            ts: Date.now()
+        };
+        set(msgRef, msg).catch(()=>{});
+
+        addChatMessage({
+            id: msgRef.key,
+            name: myName,
+            text: msg.text,
+            ts: msg.ts,
+            hue: myHue,
+            isMine: true
+        });
+    }
+
+    document.getElementById('btnChatToggle').addEventListener('click', openChat);
+    document.getElementById('btnCloseChat').addEventListener('click', closeChat);
+    document.getElementById('btnSendChat').addEventListener('click', sendChat);
+    document.getElementById('chatInput').addEventListener('keydown', (e) => {
+        e.stopPropagation();
+        if (e.key === 'Enter') { e.preventDefault(); sendChat(); }
+        if (e.key === 'Escape') { e.preventDefault(); closeChat(); }
+    });
 
     // ================= GAME LOOP =================
     let lastTime = performance.now();
@@ -481,11 +701,13 @@
             updatePlayerMovement(dt);
             if (multiplayerMode) {
                 sendMyState(performance.now());
+                trySpawnFoodMP();
+                cleanupOldFoodsMP();
             } else {
                 updateNPCs(dt);
-                checkCollisions();
                 maintainWorldEntities();
             }
+            checkCollisions();
             updateHungerAndHealth(dt);
             updateEffects(dt);
             updateHUD();
@@ -551,7 +773,12 @@
                 player.hunger = Math.min(player.maxHunger, player.hunger + f.value);
                 player.hp = Math.min(player.maxHp, player.hp + 15);
                 damageTexts.push({ text:'+15 HP', x:player.x, y:player.y-40, color:'#22c55e', life:0.9 });
+
+                // Убираем с карты и с сервера
                 foods.splice(i, 1);
+                if (multiplayerMode && f.id) {
+                    remove(ref(db, 'foods/' + f.id)).catch(()=>{});
+                }
             }
         }
     }
@@ -639,7 +866,7 @@
             ctx.restore();
         });
 
-        // NPCs (single only)
+        // NPCs
         npcs.forEach(npc => {
             ctx.fillStyle = npc.isAggro ? 'rgba(239,68,68,0.35)' : 'rgba(0,0,0,0.1)';
             ctx.beginPath(); ctx.arc(npc.x, npc.y + npc.radius*0.5, npc.radius, 0, Math.PI*2); ctx.fill();
@@ -659,7 +886,7 @@
             ctx.fillText(npc.isAggro ? '😡 ВРАЖДЕБНЫЙ' : 'ДИКИЙ ТЕЛЕМОСТ', npc.x, barY - 4);
         });
 
-        // Remote players (MP)
+        // Remote players
         if (multiplayerMode) {
             remotePlayers.forEach((rp) => {
                 const hue = rp.hue || 200;
@@ -671,7 +898,6 @@
                 drawEntityImage(playerImg, rp.x, rp.y, 30, `hsl(${hue},70%,55%)`);
                 ctx.restore();
 
-                // Facing fist
                 const fx = rp.x + Math.cos(rp.angle || 0) * 40;
                 const fy = rp.y + Math.sin(rp.angle || 0) * 40;
                 ctx.fillStyle = `hsl(${hue},80%,55%)`;
@@ -700,7 +926,6 @@
         ctx.textAlign = 'center';
         ctx.fillText(multiplayerMode ? myName : 'ВЫ', player.x, player.y - player.radius - 8);
 
-        // Floating texts
         damageTexts.forEach(d => {
             ctx.fillStyle = d.color;
             ctx.font = '800 16px Rubik, sans-serif';
@@ -718,12 +943,11 @@
         document.getElementById('finalScore').innerText = player.score;
         document.getElementById('gameOverModal').classList.remove('hidden');
 
-        // В мультиплеере — сообщим сети, что мы мертвы
         if (multiplayerMode && myPlayerRef) {
             set(myPlayerRef, {
                 name: myName, x: player.x, y: player.y, angle: 0,
                 hp: 0, score: player.score, hue: myHue, lastSeen: Date.now()
-            });
+            }).catch(()=>{});
         }
     }
 
@@ -736,12 +960,15 @@
         hud.classList.remove('hidden'); hud.classList.add('flex');
         document.getElementById('scoreLabel').innerText = 'Победил в баттлах';
         document.getElementById('onlineText').innerText = '';
+        document.getElementById('btnChatToggle').classList.add('hidden');
+        document.getElementById('chatFloaters').classList.add('hidden');
+        document.getElementById('chatFloaters').innerHTML = '';
         currentState = STATE.PLAYING;
         lastTime = performance.now();
         initGame();
     });
 
-    document.getElementById('btnMulti').addEventListener('click', async () => {
+    document.getElementById('btnMulti').addEventListener('click', () => {
         const nameVal = (document.getElementById('nameInput').value || '').trim();
         if (!nameVal) {
             document.getElementById('mpStatus').innerText = '⚠️ Введите ник!';
@@ -756,6 +983,9 @@
         hud.classList.remove('hidden'); hud.classList.add('flex');
         document.getElementById('scoreLabel').innerText = 'Ударов нанесено';
         document.getElementById('onlineText').innerText = '🌐 подключение...';
+        document.getElementById('btnChatToggle').classList.remove('hidden');
+        document.getElementById('chatFloaters').classList.remove('hidden');
+        document.getElementById('chatFloaters').innerHTML = '';
 
         currentState = STATE.PLAYING;
         lastTime = performance.now();
@@ -767,15 +997,12 @@
         document.getElementById('gameOverModal').classList.add('hidden');
         currentState = STATE.PLAYING;
         lastTime = performance.now();
-        if (multiplayerMode) {
-            initGame();
-            // обновляем HP в сети
-            if (myPlayerRef) set(myPlayerRef, {
+        initGame();
+        if (multiplayerMode && myPlayerRef) {
+            set(myPlayerRef, {
                 name: myName, x: 0, y: 0, angle: 0,
                 hp: player.maxHp, score: 0, hue: myHue, lastSeen: Date.now()
-            });
-        } else {
-            initGame();
+            }).catch(()=>{});
         }
     });
 
@@ -784,15 +1011,16 @@
         const hud = document.getElementById('gameHUD');
         hud.classList.add('hidden'); hud.classList.remove('flex');
         document.getElementById('mainMenu').classList.remove('hidden');
+        document.getElementById('btnChatToggle').classList.add('hidden');
+        document.getElementById('chatFloaters').classList.add('hidden');
+        document.getElementById('chatFloaters').innerHTML = '';
+        closeChat();
         currentState = STATE.MENU;
         stopMultiplayer();
     });
 
-    // На всякий случай — при закрытии вкладки убираем себя из БД
     window.addEventListener('beforeunload', () => {
-        if (myPlayerRef) {
-            try { remove(myPlayerRef); } catch(e) {}
-        }
+        if (myPlayerRef) { try { remove(myPlayerRef); } catch(e) {} }
     });
 
     // Запуск
